@@ -403,13 +403,23 @@ def manage_account(
         return {"status_code": status, "preferences": res}
 
     elif action == "update_preferences":
-        pref_payload: Dict[str, Any] = {}
+        if preferred_locations is None and preferred_salary is None:
+            return {"status_code": 400, "error": "preferred_locations or preferred_salary required for update_preferences."}
+
+        st_get, curr_prefs = client.execute_request(
+            "/get-candidate-matching-preferences",
+            method="GET",
+            cutshort_authentication=cutshort_authentication,
+            cf_clearance=cf_clearance,
+            xsrf_token=xsrf_token,
+            cssid=cssid,
+            user_agent=user_agent
+        )
+        pref_payload = curr_prefs if st_get == 200 and isinstance(curr_prefs, dict) else {}
         if preferred_locations is not None:
             pref_payload["preferenceLocations"] = preferred_locations
         if preferred_salary is not None:
             pref_payload["preferredSalaryVanity"] = preferred_salary
-        if not pref_payload:
-            return {"status_code": 400, "error": "preferred_locations or preferred_salary required for update_preferences."}
 
         status, res = client.execute_request(
             "/save-candidate-matching-preferences",

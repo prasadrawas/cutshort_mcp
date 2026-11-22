@@ -689,10 +689,11 @@ def pass_job(
     user_agent: Optional[str] = None
 ) -> Tuple[int, Dict[str, Any]]:
     """Decline / archive an irrelevant job listing."""
+    reason_code = reason or "not_relevant"
     status, res = execute_request(
         "/markJobAsIrrelevant",
         method="POST",
-        json_data={"jobId": str(job_id).strip(), "reason": reason or "Not a fit"},
+        json_data={"jobId": str(job_id).strip(), "reasons": [reason_code]},
         cutshort_authentication=cutshort_authentication,
         cf_clearance=cf_clearance,
         xsrf_token=xsrf_token,
