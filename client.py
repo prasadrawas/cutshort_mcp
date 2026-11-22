@@ -533,10 +533,63 @@ def get_job_details(
             "public_url": cached_job.get("public_url")
         }
 
+    target_slug = slug
+    if not target_slug and opportunity_url:
+        m_slug = re.search(r"/job/([^/?#]+)", opportunity_url)
+        if m_slug:
+            target_slug = m_slug.group(1)
+
+    # If slug is available, fetch job description page directly
+    if target_slug:
+        try:
+            auth, cf, xsrf, cs, ua = resolve_credentials(
+                cutshort_authentication=cutshort_authentication,
+                cf_clearance=cf_clearance,
+                xsrf_token=xsrf_token,
+                cssid=cssid,
+                user_agent=user_agent
+            )
+            headers = build_request_headers(auth, cf, xsrf, cs, ua)
+            with httpx.Client(follow_redirects=True, headers=headers, timeout=15.0) as client:
+                r_job = client.get(f"https://cutshort.io/job/{target_slug}")
+                if r_job.status_code == 200:
+                    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', r_job.text)
+                    if m:
+                        d = json.loads(m.group(1))
+                        queries = (d.get("props", {}).get("pageProps", {}).get("dehydratedState") or {}).get("queries") or []
+                        for q in queries:
+                            if q.get("queryKey", [None])[0] == "jobData":
+                                pd = (q.get("state", {}).get("data", {}).get("data") or {}).get("pageData") or {}
+                                jid = str(pd.get("_id", ""))
+                                exp_info = pd.get("expRange", {}) or {}
+                                min_e = exp_info.get("min", 0)
+                                max_e = exp_info.get("max", 0)
+                                job_data = {
+                                    "success": True,
+                                    "id": jid,
+                                    "title": pd.get("headline"),
+                                    "company": pd.get("companyDetails", {}).get("name"),
+                                    "company_details": pd.get("companyDetails"),
+                                    "description_html": pd.get("sanitizedComment"),
+                                    "salary": pd.get("salaryRange") or "Not disclosed",
+                                    "experience": f"{min_e} - {max_e} years",
+                                    "skills": pd.get("allSkills", []),
+                                    "locations": pd.get("locations", []),
+                                    "remote_type": pd.get("remoteType", "office"),
+                                    "recruiter": pd.get("createdBy", {}).get("name"),
+                                    "public_url": pd.get("publicUrl")
+                                }
+                                if jid:
+                                    _job_cache[jid] = {**job_data, "raw_data": pd, "salary_range": job_data["salary"], "experience_range": job_data["experience"], "remote_type": job_data["remote_type"]}
+                                return 200, job_data
+        except Exception:
+            pass
+
     # If not in cache, search popular categories to hydrate cache
-    search_jobs("python", cutshort_authentication=cutshort_authentication, cf_clearance=cf_clearance, xsrf_token=xsrf_token)
-    if job_id and job_id in _job_cache:
-        return get_job_details(job_id=job_id)
+    for cat in ["python", "fullstack", "flutter"]:
+        search_jobs(cat, cutshort_authentication=cutshort_authentication, cf_clearance=cf_clearance, xsrf_token=xsrf_token)
+        if job_id and job_id in _job_cache:
+            return get_job_details(job_id=job_id)
 
     # If still not found, return 404
     return 404, {"error": f"Job details for '{job_id or slug}' could not be found."}
